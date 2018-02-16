@@ -68,20 +68,7 @@ class ServerlessCanaryDeployments {
     return logicalName;
   }
 
-  addAliasToEvents({ deploymentSettings, normalizedFn, resources }) {
-    const fnAlias = '${HelloLambdaFunctionAliaslive}';  // FIXME: parametrize alias
-    const uri = {
-      'Fn::Sub': 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloLambdaFunctionAliaslive}/invocations'
-    };
-    const getIntegrationUriParts = _.prop('Properties.Integration.Uri.Fn::Join[1]');
-    const getFnPart = _.find(_.has('Fn::GetAtt'));
-    const extractFnName = _.prop('Fn::GetAtt[0]');
-    const entries = Object.values(resources)
-      .filter(resource => resource.Type === 'AWS::ApiGateway::Method')
-    entries[0].Properties.Integration.Uri = uri;
-  }
-
-  addFunctionAlias({ deploymentSettings = {}, codeDeployApp = 'AwsnodejsdevDeploymentApplication', compiledTpl, normalizedFn, appName, deploymentGroupName, fnVersion }) {
+  addFunctionAlias({ deploymentSettings = {}, compiledTpl, normalizedFn, appName, deploymentGroupName, fnVersion }) {
     const logicalName = `${normalizedFn}Alias${deploymentSettings.alias}`;
     const beforeHookFn = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
     const afterHookFn = this.naming.getLambdaLogicalId(deploymentSettings.postTrafficHook);
@@ -89,7 +76,7 @@ class ServerlessCanaryDeployments {
       Type: 'AWS::Lambda::Alias',
       UpdatePolicy: {
         CodeDeployLambdaAliasUpdate: {
-          ApplicationName: { Ref: codeDeployApp },
+          ApplicationName: { Ref: this.codeDeployAppName },
           AfterAllowTrafficHook: { Ref: afterHookFn },
           BeforeAllowTrafficHook: { Ref: beforeHookFn },
           DeploymentGroupName: { Ref: deploymentGroupName }
@@ -102,6 +89,19 @@ class ServerlessCanaryDeployments {
       }
     };
     compiledTpl.Resources[logicalName] = fnAlias;
+  }
+
+  addAliasToEvents({ deploymentSettings, normalizedFn, resources }) {
+    const fnAlias = '${HelloLambdaFunctionAliaslive}';  // FIXME: parametrize alias
+    const uri = {
+      'Fn::Sub': 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloLambdaFunctionAliaslive}/invocations'
+    };
+    const getIntegrationUriParts = _.prop('Properties.Integration.Uri.Fn::Join[1]');
+    const getFnPart = _.find(_.has('Fn::GetAtt'));
+    const extractFnName = _.prop('Fn::GetAtt[0]');
+    const entries = Object.values(resources)
+      .filter(resource => resource.Type === 'AWS::ApiGateway::Method')
+    entries[0].Properties.Integration.Uri = uri;
   }
 }
 
