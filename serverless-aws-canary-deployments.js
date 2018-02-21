@@ -41,6 +41,7 @@ class ServerlessCanaryDeployments {
           const deploymentSettings = fn.obj.deploymentPreference;
           const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: normalizedFn });
           const functionAlias = this.addFunctionAlias({ deploymentSettings, compiledTpl, functionName, deploymentGroup, functionVersion });
+          this.getEventsFor(functionName);
           this.addAliasToEvents({ functionAlias, resources, functionName });
           // console.log(JSON.stringify(this.compiledTpl.Resources));
         });
@@ -98,8 +99,6 @@ class ServerlessCanaryDeployments {
       '}/invocations'
     ].join('');
     const uri = { 'Fn::Sub': uriWithAwsVariables };
-    const evfor = this.getEventsFor(functionName);
-    console.log(evfor.map(_.prop('Properties.Integration.Uri.Fn::Join[1][3]')));
     const entries = Object.values(resources)
       .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
     entries[0].Properties.Integration.Uri = uri;
@@ -120,6 +119,7 @@ class ServerlessCanaryDeployments {
       _.filter(isApiGMethod),
       _.filter(isMethodForFunction)
     );
+    console.log('lol¡', JSON.stringify(_.filter(isApiGMethod, this.compiledTpl.Resources)));
     return getMethodsForFunction(this.compiledTpl.Resources);
   }
 }
