@@ -33,14 +33,15 @@ class ServerlessCanaryDeployments {
       this.addCodeDeployRole();
       this.withDeploymentPreferencesFns
         .forEach((fn) => {
-          const normalizedFn = this.naming.getLambdaLogicalId(fn.name);
+          const functionName = this.naming.getLambdaLogicalId(fn.name);
+          const normalizedFn = functionName;
           const resources = compiledTpl.Resources;
-          const fnVersion = Object.keys(compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
+          const functionVersion = Object.keys(compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
           const deploymentSettings = fn.obj.deploymentPreference;
-          const deploymentGroupName = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: normalizedFn });
-          console.log(this.compiledTpl);
-          this.addFunctionAlias({ deploymentSettings, compiledTpl, normalizedFn, deploymentGroupName, fnVersion });
+          const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: normalizedFn });
+          this.addFunctionAlias({ deploymentSettings, compiledTpl, functionName, deploymentGroup, functionVersion });
           this.addAliasToEvents({ deploymentSettings, normalizedFn, resources });
+          console.log(this.compiledTpl.Resources.HelloLambdaFunctionAliaslive.UpdatePolicy);
         });
     }
   }
@@ -68,27 +69,24 @@ class ServerlessCanaryDeployments {
     return logicalName;
   }
 
-  addFunctionAlias({ deploymentSettings = {}, compiledTpl, normalizedFn, appName, deploymentGroupName, fnVersion }) {
-    const logicalName = `${normalizedFn}Alias${deploymentSettings.alias}`;
-    const beforeHookFn = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
-    const afterHookFn = this.naming.getLambdaLogicalId(deploymentSettings.postTrafficHook);
-    const fnAlias = {
-      Type: 'AWS::Lambda::Alias',
-      UpdatePolicy: {
-        CodeDeployLambdaAliasUpdate: {
-          ApplicationName: { Ref: this.codeDeployAppName },
-          AfterAllowTrafficHook: { Ref: afterHookFn },
-          BeforeAllowTrafficHook: { Ref: beforeHookFn },
-          DeploymentGroupName: { Ref: deploymentGroupName }
-        }
-      },
-      Properties: {
-        FunctionVersion: { 'Fn::GetAtt': [ fnVersion, 'Version' ] },
-        FunctionName: { Ref: normalizedFn },
-        Name: deploymentSettings.alias
-      }
+  addFunctionAlias({ deploymentSettings = {}, compiledTpl, functionName, deploymentGroup, functionVersion }) {
+    const logicalName = `${functionName}Alias${deploymentSettings.alias}`;
+    const beforeHook = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
+    const afterHook = this.naming.getLambdaLogicalId(deploymentSettings.postTrafficHook);
+    const { alias } = deploymentSettings;
+    const trafficShiftingSettings = {
+      codeDeployApp: this.codeDeployAppName,
+      deploymentGroup,
+      afterHook,
+      beforeHook
     };
-    compiledTpl.Resources[logicalName] = fnAlias;
+    const template = CfGenerators.lambda.buildAlias({
+      alias,
+      functionName,
+      functionVersion,
+      trafficShiftingSettings
+    });
+    compiledTpl.Resources[logicalName] = template;
   }
 
   addAliasToEvents({ deploymentSettings, normalizedFn, resources }) {
