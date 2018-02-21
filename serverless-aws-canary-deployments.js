@@ -9,9 +9,6 @@ class ServerlessCanaryDeployments {
     this.awsProvider = this.serverless.getProvider('aws');
     this.naming = this.awsProvider.naming;
     this.service = this.serverless.service;
-    this.withDeploymentPreferencesFns = this.serverless.service.getAllFunctions()
-      .map(name => ({ name, obj: this.serverless.service.getFunction(name) }))
-      .filter(fn => !!fn.obj.deploymentPreference);
     this.hooks = {
       'before:package:finalize': this.canary.bind(this)
     };
@@ -27,23 +24,26 @@ class ServerlessCanaryDeployments {
     return this.service.provider.compiledCloudFormationTemplate;
   }
 
+  get withDeploymentPreferencesFns() {
+    return this.serverless.service.getAllFunctions()
+      .map(name => ({ name, obj: this.serverless.service.getFunction(name) }))
+      .filter(fn => !!fn.obj.deploymentPreference);
+  }
+
   canary() {
     if (this.withDeploymentPreferencesFns.length > 0) {
-      const compiledTpl = this.service.provider.compiledCloudFormationTemplate;
       this.addCodeDeployApp();
       this.addCodeDeployRole();
       this.withDeploymentPreferencesFns
         .forEach((fn) => {
           const functionName = this.naming.getLambdaLogicalId(fn.name);
-          const normalizedFn = functionName;
-          const resources = compiledTpl.Resources;
-          const functionVersion = Object.keys(compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
+          const functionVersion = Object.keys(this.compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
           const deploymentSettings = fn.obj.deploymentPreference;
-          const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: normalizedFn });
-          const functionAlias = this.addFunctionAlias({ deploymentSettings, compiledTpl, functionName, deploymentGroup, functionVersion });
-          this.getEventsFor(functionName);
-          this.addAliasToEvents({ functionAlias, resources, functionName });
-          // console.log(JSON.stringify(this.compiledTpl.Resources));
+          const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
+          const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup, functionVersion });
+          console.log(this.getEventsFor(functionName));
+          this.addAliasToEvents({ functionAlias, functionName });
+          // console.log(this.compiledTpl.Resources);
         });
     }
   }
@@ -71,7 +71,7 @@ class ServerlessCanaryDeployments {
     return logicalName;
   }
 
-  addFunctionAlias({ deploymentSettings = {}, compiledTpl, functionName, deploymentGroup, functionVersion }) {
+  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup, functionVersion }) {
     const { alias } = deploymentSettings;
     const logicalName = `${functionName}Alias${alias}`;
     const beforeHook = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
@@ -88,18 +88,18 @@ class ServerlessCanaryDeployments {
       functionVersion,
       trafficShiftingSettings
     });
-    compiledTpl.Resources[logicalName] = template;
+    this.compiledTpl.Resources[logicalName] = template;
     return logicalName;
   }
 
-  addAliasToEvents({ resources, functionAlias, functionName }) {
+  addAliasToEvents({ functionAlias, functionName }) {
     const uriWithAwsVariables = [
       'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${',
       functionAlias,
       '}/invocations'
     ].join('');
     const uri = { 'Fn::Sub': uriWithAwsVariables };
-    const entries = Object.values(resources)
+    const entries = Object.values(this.compiledTpl.Resources)
       .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
     entries[0].Properties.Integration.Uri = uri;
   }
@@ -116,8 +116,8 @@ class ServerlessCanaryDeployments {
       _.includes(functionName)
     );
     const getMethodsForFunction = _.pipe(
-      _.filter(isApiGMethod),
-      _.filter(isMethodForFunction)
+      _.pickBy(isApiGMethod),
+      _.pickBy(isMethodForFunction)
     );
     console.log('lol¡', JSON.stringify(_.filter(isApiGMethod, this.compiledTpl.Resources)));
     return getMethodsForFunction(this.compiledTpl.Resources);
