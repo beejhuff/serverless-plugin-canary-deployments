@@ -1,4 +1,5 @@
 const _ = require('lodash/fp');
+const flatten = require('flat');
 const CfGenerators = require('./lib/CfTemplateGenerators');
 
 class ServerlessCanaryDeployments {
@@ -39,9 +40,9 @@ class ServerlessCanaryDeployments {
           const functionVersion = Object.keys(compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
           const deploymentSettings = fn.obj.deploymentPreference;
           const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: normalizedFn });
-          this.addFunctionAlias({ deploymentSettings, compiledTpl, functionName, deploymentGroup, functionVersion });
-          this.addAliasToEvents({ deploymentSettings, normalizedFn, resources });
-          console.log(this.compiledTpl.Resources.HelloLambdaFunctionAliaslive.UpdatePolicy);
+          const functionAlias = this.addFunctionAlias({ deploymentSettings, compiledTpl, functionName, deploymentGroup, functionVersion });
+          this.addAliasToEvents({ functionAlias, resources, functionName });
+          // console.log(JSON.stringify(this.compiledTpl.Resources));
         });
     }
   }
@@ -70,10 +71,10 @@ class ServerlessCanaryDeployments {
   }
 
   addFunctionAlias({ deploymentSettings = {}, compiledTpl, functionName, deploymentGroup, functionVersion }) {
-    const logicalName = `${functionName}Alias${deploymentSettings.alias}`;
+    const { alias } = deploymentSettings;
+    const logicalName = `${functionName}Alias${alias}`;
     const beforeHook = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
     const afterHook = this.naming.getLambdaLogicalId(deploymentSettings.postTrafficHook);
-    const { alias } = deploymentSettings;
     const trafficShiftingSettings = {
       codeDeployApp: this.codeDeployAppName,
       deploymentGroup,
@@ -87,20 +88,40 @@ class ServerlessCanaryDeployments {
       trafficShiftingSettings
     });
     compiledTpl.Resources[logicalName] = template;
+    return logicalName;
   }
 
-  addAliasToEvents({ deploymentSettings, normalizedFn, resources }) {
-    const fnAlias = '${HelloLambdaFunctionAliaslive}';  // FIXME: parametrize alias
-    const uri = {
-      'Fn::Sub': 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloLambdaFunctionAliaslive}/invocations'
-    };
-    const getIntegrationUriParts = _.prop('Properties.Integration.Uri.Fn::Join[1]');
-    const getFnPart = _.find(_.has('Fn::GetAtt'));
-    const extractFnName = _.prop('Fn::GetAtt[0]');
+  addAliasToEvents({ resources, functionAlias, functionName }) {
+    const uriWithAwsVariables = [
+      'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${',
+      functionAlias,
+      '}/invocations'
+    ].join('');
+    const uri = { 'Fn::Sub': uriWithAwsVariables };
+    const evfor = this.getEventsFor(functionName);
+    console.log(evfor.map(_.prop('Properties.Integration.Uri.Fn::Join[1][3]')));
     const entries = Object.values(resources)
-      .filter(resource => resource.Type === 'AWS::ApiGateway::Method')
+      .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
     entries[0].Properties.Integration.Uri = uri;
+  }
+
+  getEventsFor(functionName) {
+    return this.getApiGatewayMethodsFor(functionName);
+  }
+
+  getApiGatewayMethodsFor(functionName) {
+    const isApiGMethod = _.matchesProperty('Type', 'AWS::ApiGateway::Method');
+    const isMethodForFunction = _.pipe(
+      _.prop('Properties.Integration'),
+      flatten,
+      _.includes(functionName)
+    );
+    const getMethodsForFunction = _.pipe(
+      _.filter(isApiGMethod),
+      _.filter(isMethodForFunction)
+    );
+    return getMethodsForFunction(this.compiledTpl.Resources);
   }
 }
 
-module.exports = ServerlessCanaryDeployments
+module.exports = ServerlessCanaryDeployments;
