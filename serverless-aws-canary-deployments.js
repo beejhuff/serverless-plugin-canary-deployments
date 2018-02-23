@@ -10,7 +10,7 @@ class ServerlessCanaryDeployments {
     this.naming = this.awsProvider.naming;
     this.service = this.serverless.service;
     this.hooks = {
-      'before:package:finalize': this.canary.bind(this)
+      'before:package:finalize': this.addCanaryDeploymentResources.bind(this)
     };
   }
 
@@ -30,40 +30,36 @@ class ServerlessCanaryDeployments {
       .filter(fn => !!fn.obj.deploymentPreference);
   }
 
-  addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
-    const dpGroup = this.buildFunctionDeploymentGroup({ deploymentSettings, normalizedFnName});
-    Object.assign(this.compiledTpl.Resources, dpGroup);
-    return Object.keys(dpGroup)[0];
-  }
-
-  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup }) {
-    const alias = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
-    Object.assign(this.compiledTpl.Resources, alias);
-    return Object.keys(alias)[0];
-  }
-
-  canary() {
+  addCanaryDeploymentResources() {
     if (this.withDeploymentPreferencesFns.length > 0) {
       const codeDeployApp = this.buildCodeDeployApp();
       const codeDeployRole = this.buildCodeDeployRole();
-      Object.assign(this.compiledTpl.Resources, codeDeployApp, codeDeployRole);
-      this.buildFunctionsResources();
-      console.log(JSON.stringify(this.compiledTpl.Resources));
+      const functionsResources = this.buildFunctionsResources();
+      Object.assign(
+        this.compiledTpl.Resources,
+        codeDeployApp,
+        codeDeployRole,
+        ...functionsResources
+      );
     }
   }
 
   buildFunctionsResources() {
-    return this.withDeploymentPreferencesFns
-      .forEach(fn => this.buildFunctionResources(fn.name, fn.obj));
+    return _.flatMap(
+      fn => this.buildFunctionResources(fn.name, fn.obj),
+      this.withDeploymentPreferencesFns
+    );
   }
 
   buildFunctionResources(serverlessFnName, serverlessFnProperties = {}) {
     const functionName = this.naming.getLambdaLogicalId(serverlessFnName);
     const deploymentSettings = serverlessFnProperties.deploymentPreference;
-    const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
-    const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
+    const deploymentGrTpl = this.buildFunctionDeploymentGroup({ deploymentSettings, functionName });
+    const deploymentGroup = this.getResourceLogicalName(deploymentGrTpl);
+    const fnAliasTpl = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
+    const functionAlias = this.getResourceLogicalName(fnAliasTpl);
     const eventsWithAlias = this.buildEventsForAlias({ functionName, functionAlias});
-    Object.assign(this.compiledTpl.Resources, ...eventsWithAlias);
+    return [deploymentGrTpl, fnAliasTpl, ...eventsWithAlias];
   }
 
   buildCodeDeployApp() {
@@ -78,8 +74,8 @@ class ServerlessCanaryDeployments {
     return { [logicalName]: template };
   }
 
-  buildFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
-    const logicalName = `${normalizedFnName}DeploymentGroup`;
+  buildFunctionDeploymentGroup({ deploymentSettings, functionName }) {
+    const logicalName = `${functionName}DeploymentGroup`;
     const params = {
       codeDeployAppName: this.codeDeployAppName,
       deploymentSettings
@@ -145,6 +141,10 @@ class ServerlessCanaryDeployments {
       _.findKey(isVersionForFunction),
     );
     return getVersionNameForFunction(this.compiledTpl.Resources);
+  }
+
+  getResourceLogicalName(resource) {
+    return _.head(_.keys(resource));
   }
 }
 
