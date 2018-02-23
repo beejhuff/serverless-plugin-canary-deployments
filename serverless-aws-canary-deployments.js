@@ -41,9 +41,8 @@ class ServerlessCanaryDeployments {
           const deploymentSettings = fn.obj.deploymentPreference;
           const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
           const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup, functionVersion });
-          console.log(this.getEventsFor(functionName));
-          this.addAliasToEvents({ functionAlias, functionName });
-          // console.log(this.compiledTpl.Resources);
+          this.addAliasToEvents({ functionName, functionAlias });
+          console.log(JSON.stringify(this.compiledTpl.Resources));
         });
     }
   }
@@ -92,16 +91,24 @@ class ServerlessCanaryDeployments {
     return logicalName;
   }
 
-  addAliasToEvents({ functionAlias, functionName }) {
-    const uriWithAwsVariables = [
-      'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${',
-      functionAlias,
-      '}/invocations'
-    ].join('');
-    const uri = { 'Fn::Sub': uriWithAwsVariables };
-    const entries = Object.values(this.compiledTpl.Resources)
-      .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
-    entries[0].Properties.Integration.Uri = uri;
+  addAliasToEvents({ functionName, functionAlias }) {
+    const functionEvents = this.getEventsFor(functionName);
+    const functionEventsEntries = Object.entries(functionEvents);
+    const eventsWithAlias = functionEventsEntries.map(([logicalName, event]) => {
+      const evt = CfGenerators.apiGateway.replaceMethodUriWithAlias(event, functionAlias);
+      return { [logicalName]: evt };
+    });
+    // console.log(JSON.stringify(eventsWithAlias))
+    // const uriWithAwsVariables = [
+    //   'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${',
+    //   functionAlias,
+    //   '}/invocations'
+    // ].join('');
+    // const uri = { 'Fn::Sub': uriWithAwsVariables };
+    // const entries = Object.values(this.compiledTpl.Resources)
+    //   .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
+    // entries[0].Properties.Integration.Uri = uri;
+    Object.assign(this.compiledTpl.Resources, ...eventsWithAlias);
   }
 
   getEventsFor(functionName) {
@@ -119,7 +126,6 @@ class ServerlessCanaryDeployments {
       _.pickBy(isApiGMethod),
       _.pickBy(isMethodForFunction)
     );
-    console.log('lol¡', JSON.stringify(_.filter(isApiGMethod, this.compiledTpl.Resources)));
     return getMethodsForFunction(this.compiledTpl.Resources);
   }
 }
