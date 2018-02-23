@@ -1,5 +1,5 @@
 const _ = require('lodash/fp');
-const flatten = require('flat');
+const flattenObject = require('flat');
 const CfGenerators = require('./lib/CfTemplateGenerators');
 
 class ServerlessCanaryDeployments {
@@ -26,8 +26,7 @@ class ServerlessCanaryDeployments {
 
   get withDeploymentPreferencesFns() {
     return this.serverless.service.getAllFunctions()
-      .map(name => ({ name, obj: this.serverless.service.getFunction(name) }))
-      .filter(fn => !!fn.obj.deploymentPreference);
+      .filter(name => _.has('deploymentSettings', this.service.getFunction(name)));
   }
 
   addCanaryDeploymentResources() {
@@ -46,14 +45,14 @@ class ServerlessCanaryDeployments {
 
   buildFunctionsResources() {
     return _.flatMap(
-      fn => this.buildFunctionResources(fn.name, fn.obj),
+      serverlessFunction => this.buildFunctionResources(serverlessFunction),
       this.withDeploymentPreferencesFns
     );
   }
 
-  buildFunctionResources(serverlessFnName, serverlessFnProperties = {}) {
+  buildFunctionResources(serverlessFnName) {
     const functionName = this.naming.getLambdaLogicalId(serverlessFnName);
-    const deploymentSettings = serverlessFnProperties.deploymentPreference;
+    const deploymentSettings = this.getDeploymentSettingsFor(serverlessFnName);
     const deploymentGrTpl = this.buildFunctionDeploymentGroup({ deploymentSettings, functionName });
     const deploymentGroup = this.getResourceLogicalName(deploymentGrTpl);
     const fnAliasTpl = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
@@ -123,7 +122,7 @@ class ServerlessCanaryDeployments {
     const isApiGMethod = _.matchesProperty('Type', 'AWS::ApiGateway::Method');
     const isMethodForFunction = _.pipe(
       _.prop('Properties.Integration'),
-      flatten,
+      flattenObject,
       _.includes(functionName)
     );
     const getMethodsForFunction = _.pipe(
@@ -145,6 +144,12 @@ class ServerlessCanaryDeployments {
 
   getResourceLogicalName(resource) {
     return _.head(_.keys(resource));
+  }
+
+  getDeploymentSettingsFor(serverlessFunction) {
+    const globalSettings = _.cloneDeep(this.service.custom.deploymentSettings);
+    const fnDeploymentSetting = this.service.getFunction(serverlessFunction).deploymentSettings;
+    return Object.assign({}, globalSettings, fnDeploymentSetting);
   }
 }
 
