@@ -30,47 +30,65 @@ class ServerlessCanaryDeployments {
       .filter(fn => !!fn.obj.deploymentPreference);
   }
 
+  addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
+    const dpGroup = this.buildFunctionDeploymentGroup({ deploymentSettings, normalizedFnName});
+    Object.assign(this.compiledTpl.Resources, dpGroup);
+    return Object.keys(dpGroup)[0];
+  }
+
+  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup }) {
+    const alias = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
+    Object.assign(this.compiledTpl.Resources, alias);
+    return Object.keys(alias)[0];
+  }
+
   canary() {
     if (this.withDeploymentPreferencesFns.length > 0) {
-      this.addCodeDeployApp();
-      this.addCodeDeployRole();
-      this.withDeploymentPreferencesFns
-        .forEach((fn) => {
-          const functionName = this.naming.getLambdaLogicalId(fn.name);
-          const functionVersion = Object.keys(this.compiledTpl.Resources).find(el => el.startsWith('HelloLambdaVersion'));  // FIXME
-          const deploymentSettings = fn.obj.deploymentPreference;
-          const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
-          const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup, functionVersion });
-          this.addAliasToEvents({ functionName, functionAlias });
-          // console.log(JSON.stringify(this.compiledTpl.Resources));
-        });
+      const codeDeployApp = this.buildCodeDeployApp();
+      const codeDeployRole = this.buildCodeDeployRole();
+      Object.assign(this.compiledTpl.Resources, codeDeployApp, codeDeployRole);
+      this.buildFunctionsResources();
+      console.log(JSON.stringify(this.compiledTpl.Resources));
     }
   }
 
-  addCodeDeployApp() {
-    const resourceName = this.codeDeployAppName;
-    const template = CfGenerators.codeDeploy.buildApplication();
-    Object.assign(this.compiledTpl.Resources, { [resourceName]: template });
+  buildFunctionsResources() {
+    return this.withDeploymentPreferencesFns
+      .forEach(fn => this.buildFunctionResources(fn.name, fn.obj));
   }
 
-  addCodeDeployRole() {
+  buildFunctionResources(serverlessFnName, serverlessFnProperties = {}) {
+    const functionName = this.naming.getLambdaLogicalId(serverlessFnName);
+    const deploymentSettings = serverlessFnProperties.deploymentPreference;
+    const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
+    const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
+    const eventsWithAlias = this.buildEventsForAlias({ functionName, functionAlias});
+    Object.assign(this.compiledTpl.Resources, ...eventsWithAlias);
+  }
+
+  buildCodeDeployApp() {
+    const logicalName = this.codeDeployAppName;
+    const template = CfGenerators.codeDeploy.buildApplication();
+    return { [logicalName]: template };
+  }
+
+  buildCodeDeployRole() {
     const logicalName = 'CodeDeployServiceRole';
     const template = CfGenerators.iam.buildCodeDeployRole();
-    Object.assign(this.compiledTpl.Resources, { [logicalName]: template });
+    return { [logicalName]: template };
   }
 
-  addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
+  buildFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
     const logicalName = `${normalizedFnName}DeploymentGroup`;
     const params = {
       codeDeployAppName: this.codeDeployAppName,
       deploymentSettings
     };
     const template = CfGenerators.codeDeploy.buildFnDeploymentGroup(params);
-    Object.assign(this.compiledTpl.Resources, { [logicalName]: template });
-    return logicalName;
+    return { [logicalName]: template };
   }
 
-  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup }) {
+  buildFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup }) {
     const { alias } = deploymentSettings;
     const functionVersion = this.getVersionNameFor(functionName);
     const logicalName = `${functionName}Alias${alias}`;
@@ -88,19 +106,17 @@ class ServerlessCanaryDeployments {
       functionVersion,
       trafficShiftingSettings
     });
-    this.getVersionNameFor(functionName);
-    this.compiledTpl.Resources[logicalName] = template;
-    return logicalName;
+    return { [logicalName]: template };
   }
 
-  addAliasToEvents({ functionName, functionAlias }) {
+  buildEventsForAlias({ functionName, functionAlias }) {
     const functionEvents = this.getEventsFor(functionName);
     const functionEventsEntries = Object.entries(functionEvents);
     const eventsWithAlias = functionEventsEntries.map(([logicalName, event]) => {
       const evt = CfGenerators.apiGateway.replaceMethodUriWithAlias(event, functionAlias);
       return { [logicalName]: evt };
     });
-    Object.assign(this.compiledTpl.Resources, ...eventsWithAlias);
+    return eventsWithAlias;
   }
 
   getEventsFor(functionName) {
