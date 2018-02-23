@@ -55,8 +55,9 @@ class ServerlessCanaryDeployments {
   }
 
   addCodeDeployRole() {
+    const logicalName = 'CodeDeployServiceRole';
     const template = CfGenerators.iam.buildCodeDeployRole();
-    Object.assign(this.compiledTpl.Resources, template);
+    Object.assign(this.compiledTpl.Resources, { [logicalName]: template });
   }
 
   addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
