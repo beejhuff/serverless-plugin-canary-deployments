@@ -42,7 +42,7 @@ class ServerlessCanaryDeployments {
           const deploymentGroup = this.addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName: functionName });
           const functionAlias = this.addFunctionAlias({ deploymentSettings, functionName, deploymentGroup, functionVersion });
           this.addAliasToEvents({ functionName, functionAlias });
-          console.log(JSON.stringify(this.compiledTpl.Resources));
+          // console.log(JSON.stringify(this.compiledTpl.Resources));
         });
     }
   }
@@ -70,8 +70,9 @@ class ServerlessCanaryDeployments {
     return logicalName;
   }
 
-  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup, functionVersion }) {
+  addFunctionAlias({ deploymentSettings = {}, functionName, deploymentGroup }) {
     const { alias } = deploymentSettings;
+    const functionVersion = this.getVersionNameFor(functionName);
     const logicalName = `${functionName}Alias${alias}`;
     const beforeHook = this.naming.getLambdaLogicalId(deploymentSettings.preTrafficHook);
     const afterHook = this.naming.getLambdaLogicalId(deploymentSettings.postTrafficHook);
@@ -87,6 +88,7 @@ class ServerlessCanaryDeployments {
       functionVersion,
       trafficShiftingSettings
     });
+    this.getVersionNameFor(functionName);
     this.compiledTpl.Resources[logicalName] = template;
     return logicalName;
   }
@@ -98,16 +100,6 @@ class ServerlessCanaryDeployments {
       const evt = CfGenerators.apiGateway.replaceMethodUriWithAlias(event, functionAlias);
       return { [logicalName]: evt };
     });
-    // console.log(JSON.stringify(eventsWithAlias))
-    // const uriWithAwsVariables = [
-    //   'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${',
-    //   functionAlias,
-    //   '}/invocations'
-    // ].join('');
-    // const uri = { 'Fn::Sub': uriWithAwsVariables };
-    // const entries = Object.values(this.compiledTpl.Resources)
-    //   .filter(resource => resource.Type === 'AWS::ApiGateway::Method');
-    // entries[0].Properties.Integration.Uri = uri;
     Object.assign(this.compiledTpl.Resources, ...eventsWithAlias);
   }
 
@@ -127,6 +119,16 @@ class ServerlessCanaryDeployments {
       _.pickBy(isMethodForFunction)
     );
     return getMethodsForFunction(this.compiledTpl.Resources);
+  }
+
+  getVersionNameFor(functionName) {
+    const isLambdaVersion = _.matchesProperty('Type', 'AWS::Lambda::Version');
+    const isVersionForFunction = _.matchesProperty('Properties.FunctionName.Ref', functionName);
+    const getVersionNameForFunction = _.pipe(
+      _.pickBy(isLambdaVersion),
+      _.findKey(isVersionForFunction),
+    );
+    return getVersionNameForFunction(this.compiledTpl.Resources);
   }
 }
 
