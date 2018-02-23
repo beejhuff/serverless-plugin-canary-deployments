@@ -50,8 +50,8 @@ class ServerlessCanaryDeployments {
 
   addCodeDeployApp() {
     const resourceName = this.codeDeployAppName;
-    const template = CfGenerators.codeDeploy.buildApplication(resourceName);
-    Object.assign(this.compiledTpl.Resources, template);
+    const template = CfGenerators.codeDeploy.buildApplication();
+    Object.assign(this.compiledTpl.Resources, { [resourceName]: template });
   }
 
   addCodeDeployRole() {
@@ -63,12 +63,11 @@ class ServerlessCanaryDeployments {
   addFunctionDeploymentGroup({ deploymentSettings, normalizedFnName }) {
     const logicalName = `${normalizedFnName}DeploymentGroup`;
     const params = {
-      normalizedFnName,
       codeDeployAppName: this.codeDeployAppName,
       deploymentSettings
     };
     const template = CfGenerators.codeDeploy.buildFnDeploymentGroup(params);
-    Object.assign(this.compiledTpl.Resources, template);
+    Object.assign(this.compiledTpl.Resources, { [logicalName]: template });
     return logicalName;
   }
 
