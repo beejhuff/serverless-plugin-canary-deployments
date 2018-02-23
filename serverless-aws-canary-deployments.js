@@ -40,6 +40,7 @@ class ServerlessCanaryDeployments {
         codeDeployRole,
         ...functionsResources
       );
+      // console.log(JSON.stringify(this.compiledTpl))
     }
   }
 
@@ -55,10 +56,11 @@ class ServerlessCanaryDeployments {
     const deploymentSettings = this.getDeploymentSettingsFor(serverlessFnName);
     const deploymentGrTpl = this.buildFunctionDeploymentGroup({ deploymentSettings, functionName });
     const deploymentGroup = this.getResourceLogicalName(deploymentGrTpl);
-    const fnAliasTpl = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
-    const functionAlias = this.getResourceLogicalName(fnAliasTpl);
+    const aliasTpl = this.buildFunctionAlias({ deploymentSettings, functionName, deploymentGroup });
+    const functionAlias = this.getResourceLogicalName(aliasTpl);
+    const lambdaPermission = this.buildPermissionForAlias({ functionName, functionAlias });
     const eventsWithAlias = this.buildEventsForAlias({ functionName, functionAlias});
-    return [deploymentGrTpl, fnAliasTpl, ...eventsWithAlias];
+    return [deploymentGrTpl, aliasTpl, lambdaPermission, ...eventsWithAlias];
   }
 
   buildCodeDeployApp() {
@@ -104,6 +106,13 @@ class ServerlessCanaryDeployments {
     return { [logicalName]: template };
   }
 
+  buildPermissionForAlias({ functionName, functionAlias }) {
+    const permission = this.getLambdaPermissionFor(functionName);
+    const [logicalName, template] = Object.entries(permission)[0];
+    const templateWithAlias = CfGenerators.lambda.replacePermissionFunctionWithAlias(template, functionAlias);
+    return { [logicalName]: templateWithAlias };
+  }
+
   buildEventsForAlias({ functionName, functionAlias }) {
     const functionEvents = this.getEventsFor(functionName);
     const functionEventsEntries = Object.entries(functionEvents);
@@ -140,6 +149,16 @@ class ServerlessCanaryDeployments {
       _.findKey(isVersionForFunction),
     );
     return getVersionNameForFunction(this.compiledTpl.Resources);
+  }
+
+  getLambdaPermissionFor(functionName) {
+    const isLambdaPermission = _.matchesProperty('Type', 'AWS::Lambda::Permission');
+    const isPermissionForFunction = _.matchesProperty('Properties.FunctionName.Fn::GetAtt[0]', functionName);
+    const getPermissionForFunction = _.pipe(
+      _.pickBy(isLambdaPermission),
+      _.pickBy(isPermissionForFunction)
+    );
+    return getPermissionForFunction(this.compiledTpl.Resources);
   }
 
   getResourceLogicalName(resource) {
